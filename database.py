@@ -222,3 +222,35 @@ def already_claimed_reward(user_id, subject):
                           AND status IN ('pending','paid') LIMIT 1''', (user_id, subject)).fetchone()
     conn.close()
     return row is not None
+
+# ---- Kitob funksiyalari ----
+
+def init_books_table():
+    conn = get_conn()
+    conn.execute('''CREATE TABLE IF NOT EXISTS books (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        name       TEXT,
+        link       TEXT,
+        added_by   INTEGER,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )''')
+    conn.commit()
+    conn.close()
+
+def add_book(name, link, admin_id):
+    conn = get_conn()
+    conn.execute('INSERT INTO books (name, link, added_by) VALUES (?,?,?)', (name, link, admin_id))
+    conn.commit()
+    conn.close()
+
+def get_books():
+    conn = get_conn()
+    rows = conn.execute('SELECT * FROM books ORDER BY created_at DESC').fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def delete_book(book_id):
+    conn = get_conn()
+    conn.execute('DELETE FROM books WHERE id=?', (book_id,))
+    conn.commit()
+    conn.close()
