@@ -14,7 +14,8 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=lo
  ADMIN_ADD_A, ADMIN_ADD_B, ADMIN_ADD_C, ADMIN_ADD_D, ADMIN_ADD_ANSWER,
  ADMIN_DEL_SUBJECT, ADMIN_DEL_QUESTION,
  REWARD_METHOD, REWARD_PHONE, BROADCAST,
- REGISTER_NAME, REGISTER_GROUP) = range(20)
+ REGISTER_NAME, REGISTER_GROUP,
+ ADMIN_ADD_BOOK_NAME, ADMIN_ADD_BOOK_LINK) = range(22)
 
 def is_admin(uid): return uid in ADMIN_IDS
 
@@ -30,6 +31,7 @@ def admin_kb():
         ["➕ Savol qo'shish",   "📋 Savollar ro'yxati"],
         ["🗑 Savol o'chirish",   "📚 Fan o'chirish"],
         ["👥 Foydalanuvchilar", "💰 Mukofot so'rovlar"],
+        ["📖 Kitob qo'shish",   "📚 Kitoblar ro'yxati"],
         ["📢 Xabar yuborish",   "⬅️ Orqaga"]
     ], resize_keyboard=True)
 
@@ -87,9 +89,9 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     name = user["real_name"] or u.first_name
     group = user["group_name"] or ""
+    grp_txt = f"\n🏫 Guruh: *{group}*" if group else ""
     await update.message.reply_text(
-        f"👋 Salom, *{name}*!\n"
-        f"{'🏫 Guruh: *' + group + '*' if group else ''}\n\n"
+        f"👋 Salom, *{name}*!{grp_txt}\n\n"
         f"🎓 *Tibbiyot Test Botiga xush kelibsiz!*\n\n"
         f"Bu bot orqali siz:\n"
         f"📚 Tibbiyot fanlaridan test yechishingiz\n"
@@ -113,7 +115,7 @@ async def register_name(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"✅ Ism: *{name}*\n\n"
         f"🏫 *Guruh raqamingizni* kiriting:\n"
-        f"_(Misol: 301-guruh yoki 2-kurs 15-guruh)_",
+        f"_(Misol: 301-guruh)_",
         parse_mode="Markdown"
     )
     return REGISTER_GROUP
@@ -122,9 +124,7 @@ async def register_group(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     group = update.message.text.strip()
     name = ctx.user_data.get('reg_name', '')
     uid = update.effective_user.id
-
     db.update_user_profile(uid, name, group)
-
     await update.message.reply_text(
         f"🎉 *Ro'yxatdan o'tdingiz!*\n\n"
         f"👤 Ism: *{name}*\n"
@@ -227,16 +227,11 @@ async def select_size(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"🚀 *Test boshlanmoqda!*\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"📚 Fan: *{subj}*  |  ❓ *{len(qs)} savol*\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"Javobni tanlang 👇",
+        f"━━━━━━━━━━━━━━━━━━",
         parse_mode="Markdown", reply_markup=ReplyKeyboardRemove()
     )
     await send_question(update, ctx)
     return ANSWERING
-
-# ============================================================
-# SAVOL YUBORISH
-# ============================================================
 
 async def send_question(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     idx = ctx.user_data['q_index']
@@ -254,10 +249,6 @@ async def send_question(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown",
         reply_markup=answer_inline_kb(q['id'])
     )
-
-# ============================================================
-# INLINE JAVOB
-# ============================================================
 
 async def inline_answer(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -303,6 +294,7 @@ async def inline_answer(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if letter == right: return "🟩"
         return "⬜"
 
+    res = "To'g'ri!" if ans == correct else f"Noto'g'ri! To'g'ri: {correct}"
     result_txt = (
         f"*Savol {idx+1}/{total}*\n\n"
         f"❓ *{q['question']}*\n\n"
@@ -310,7 +302,7 @@ async def inline_answer(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"{opt('B',ans,correct)} B)  {q['option_b']}\n"
         f"{opt('C',ans,correct)} C)  {q['option_c']}\n"
         f"{opt('D',ans,correct)} D)  {q['option_d']}\n\n"
-        f"{('✅ Togri!' if ans==correct else ('❌ Notogri! Togri: ' + correct))}"
+        f"{'✅' if ans==correct else '❌'} *{res}*"
     )
 
     if ans == correct:
@@ -326,10 +318,6 @@ async def inline_answer(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await send_question(FU2(query.message), ctx)
     return ANSWERING
 
-# ============================================================
-# TEST TUGASH
-# ============================================================
-
 async def finish_test(message, ctx, uid):
     correct = ctx.user_data['correct']
     total = len(ctx.user_data['questions'])
@@ -341,12 +329,13 @@ async def finish_test(message, ctx, uid):
     user = db.get_user(uid)
     name = user['real_name'] if user and user['real_name'] else "Talaba"
     group = user['group_name'] if user and user['group_name'] else ""
+    name_line = f"👤 *{name}* | 🏫 {group}" if group else f"👤 *{name}*"
 
     stars = "⭐" * min(5, int(score / 20))
     result = (
         f"🏁 *Test yakunlandi!*\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"👤 *{name}*" + (f"  |  🏫 {group}" if group else "") + "\n"
+        f"{name_line}\n"
         f"📚 Fan: *{subj}*\n"
         f"✅ To'g'ri: *{correct}/{total}*\n"
         f"📊 Ball: *{score}%*\n"
@@ -439,17 +428,24 @@ async def show_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     st = db.get_user_stats(uid)
     user = db.get_user(uid)
 
-    if not st or st['total_tests'] == 0:
-        await update.message.reply_text("📊 Hali test yechmagansiz!", reply_markup=main_kb())
+    if not st or not st['total_tests'] or st['total_tests'] == 0:
+        await update.message.reply_text(
+            "📊 *Mening statistikam*\n\n"
+            "Siz hali birorta test yechmagansiz!\n"
+            "📝 Test boshlash uchun menyudan tanlang.",
+            parse_mode="Markdown",
+            reply_markup=main_kb()
+        )
         return MENU
 
     name = user['real_name'] if user and user['real_name'] else "Talaba"
     group = user['group_name'] if user and user['group_name'] else ""
+    name_line = f"👤 *{name}* | 🏫 {group}" if group else f"👤 *{name}*"
 
     msg = (
         f"📊 *Mening statistikam*\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"👤 *{name}*" + (f"  |  🏫 {group}" if group else "") + "\n"
+        f"{name_line}\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"📝 Jami testlar: *{st['total_tests']}*\n"
         f"✅ Jami to'g'ri: *{st['total_correct']}/{st['total_questions']}*\n"
@@ -481,9 +477,9 @@ async def show_leaderboard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     for i, r in enumerate(rows):
         name = r['real_name'] or r['full_name'] or "Foydalanuvchi"
         group = r['group_name'] or ""
+        grp = f" ({group})" if group else ""
         msg += (
-            f"{medals[i]} *{i+1}. {name}*"
-            + (f" ({group})" if group else "") + "\n"
+            f"{medals[i]} *{i+1}. {name}{grp}*\n"
             f"   💯 {r['best']}%  |  📈 {r['avg']}% o'rtacha  |  📝 {r['cnt']} test\n\n"
         )
     await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_kb())
@@ -527,13 +523,14 @@ async def reward_phone_h(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = db.get_user(uid)
     name = user['real_name'] if user and user['real_name'] else "Talaba"
     group = user['group_name'] if user and user['group_name'] else ""
+    name_line = f"👤 *{name}* | 🏫 {group}" if group else f"👤 *{name}*"
 
     for aid in ADMIN_IDS:
         try:
             await ctx.bot.send_message(aid,
                 f"🔔 *Yangi mukofot so'rovi!*\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
-                f"👤 *{name}*" + (f"  |  🏫 {group}" if group else "") + "\n"
+                f"{name_line}\n"
                 f"📚 Fan: *{subj}*  |  📊 Ball: *{score}%*\n"
                 f"💳 {method.upper()}: `{phone}`\n"
                 f"💰 *{REWARD_AMOUNT_UZS:,} so'm*\n"
@@ -561,10 +558,12 @@ async def admin_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     users = db.get_all_users()
     qc = db.get_questions_count()
     rw = db.get_pending_rewards()
+    books = db.get_books()
     await update.message.reply_text(
         f"⚙️ *Admin Panel*\n━━━━━━━━━━━━━━━━━━\n"
         f"👥 Foydalanuvchilar: *{len(users)}*\n"
         f"❓ Savollar: *{qc}*\n"
+        f"📖 Kitoblar: *{len(books)}*\n"
         f"💰 Kutayotgan mukofotlar: *{len(rw)}*",
         parse_mode="Markdown", reply_markup=admin_kb()
     )
@@ -585,7 +584,7 @@ async def admin_menu_h(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         hint = "\n".join(f"• {s}" for s in subs) if subs else "Hali fan yo'q"
         await update.message.reply_text(
             f"📚 Fan nomini kiriting:\n{hint}\n\nYoki yangi fan nomi:",
-            parse_mode="Markdown", reply_markup=back_kb()
+            reply_markup=back_kb()
         )
         return ADMIN_ADD_SUBJECT
 
@@ -618,15 +617,25 @@ async def admin_menu_h(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if "Foydalanuvchilar" in t:
         users = db.get_all_users()
+        if not users:
+            await update.message.reply_text("👥 Hali foydalanuvchilar yo'q.", reply_markup=admin_kb())
+            return ADMIN_MENU
         msg = f"👥 *{len(users)} ta foydalanuvchi*\n━━━━━━━━━━━━━━━━━━\n"
-        for u in users[:30]:
+        for u in users[:20]:
             name = u['real_name'] or u['full_name'] or 'Nomsiz'
             group = u['group_name'] or "-"
-            uname = f"@{u['username']}" if u['username'] else "-"
-            msg += f"• *{name}* ({group}) {uname}\n"
-        if len(users) > 30:
-            msg += f"\n...va yana {len(users)-30} ta"
+            msg += f"• *{name}* | {group}\n"
+        if len(users) > 20:
+            msg += f"\n...va yana {len(users)-20} ta"
+
+        # O'chirish tugmalari
+        kb_rows = []
+        for u in users[:10]:
+            name = u['real_name'] or u['full_name'] or 'Nomsiz'
+            kb_rows.append([InlineKeyboardButton(f"🗑 {name}", callback_data=f"deluser:{u['user_id']}")])
+        kb = InlineKeyboardMarkup(kb_rows)
         await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=admin_kb())
+        await update.message.reply_text("Foydalanuvchi o'chirish:", reply_markup=kb)
         return ADMIN_MENU
 
     if "Mukofot" in t:
@@ -635,20 +644,43 @@ async def admin_menu_h(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("✅ Kutayotgan mukofot yo'q.", reply_markup=admin_kb())
             return ADMIN_MENU
         for r in rewards:
-            name = r['real_name'] or r['full_name'] or "Talaba"
-            group = r['group_name'] or ""
+            rname = r['real_name'] or r['full_name'] or "Talaba"
+            rgroup = r['group_name'] or ""
+            rname_line = f"👤 *{rname}* ({rgroup})" if rgroup else f"👤 *{rname}*"
             kb = InlineKeyboardMarkup([[
                 InlineKeyboardButton("✅ To'landi", callback_data=f"paid:{r['id']}"),
                 InlineKeyboardButton("❌ Rad etish", callback_data=f"reject:{r['id']}")
             ]])
             await update.message.reply_text(
                 f"💰 *So'rov #{r['id']}*\n━━━━━━━━━━━━━━━━━━\n"
-                f"👤 *{name}*" + (f" ({group})" if group else "") + "\n"
+                f"{rname_line}\n"
                 f"📚 {r['subject']}  |  📊 {r['score']}%\n"
                 f"💳 {r['method'].upper()}: `{r['phone']}`\n"
                 f"💰 *{REWARD_AMOUNT_UZS:,} so'm*",
                 parse_mode="Markdown", reply_markup=kb
             )
+        return ADMIN_MENU
+
+    if "Kitob qo'shish" in t:
+        await update.message.reply_text(
+            "📖 *Kitob nomi* kiriting:\nMisol: Anatomiya asoslari",
+            parse_mode="Markdown", reply_markup=back_kb()
+        )
+        return ADMIN_ADD_BOOK_NAME
+
+    if "Kitoblar ro'yxati" in t:
+        books = db.get_books()
+        if not books:
+            await update.message.reply_text("📚 Hali kitoblar yo'q.", reply_markup=admin_kb())
+            return ADMIN_MENU
+        msg = f"📚 *Kitoblar: {len(books)} ta*\n━━━━━━━━━━━━━━━━━━\n"
+        kb_rows = []
+        for b in books:
+            msg += f"📖 *{b['name']}*\n🔗 {b['link']}\n\n"
+            kb_rows.append([InlineKeyboardButton(f"🗑 {b['name']}", callback_data=f"delbook:{b['id']}")])
+        kb = InlineKeyboardMarkup(kb_rows)
+        await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=admin_kb())
+        await update.message.reply_text("Kitob o'chirish:", reply_markup=kb)
         return ADMIN_MENU
 
     if "Xabar yuborish" in t:
@@ -657,6 +689,41 @@ async def admin_menu_h(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     return ADMIN_MENU
 
+# ---- Kitob qo'shish ----
+async def admin_add_book_name(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if "⬅️" in update.message.text:
+        await update.message.reply_text("⚙️ Admin panel:", reply_markup=admin_kb())
+        return ADMIN_MENU
+    ctx.user_data['book_name'] = update.message.text.strip()
+    await update.message.reply_text(
+        "🔗 Kitob *havolasini* (link) kiriting:\nMisol: https://t.me/...",
+        parse_mode="Markdown", reply_markup=back_kb()
+    )
+    return ADMIN_ADD_BOOK_LINK
+
+async def admin_add_book_link(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if "⬅️" in update.message.text:
+        await update.message.reply_text("📖 Kitob nomi kiriting:", reply_markup=back_kb())
+        return ADMIN_ADD_BOOK_NAME
+    link = update.message.text.strip()
+    name = ctx.user_data.get('book_name', '')
+    db.add_book(name, link, update.effective_user.id)
+    await update.message.reply_text(
+        f"✅ *Kitob qo'shildi!*\n📖 {name}\n🔗 {link}",
+        parse_mode="Markdown", reply_markup=admin_kb()
+    )
+    return ADMIN_MENU
+
+# ---- Foydalanuvchi o'chirish ----
+async def del_user_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    if not is_admin(q.from_user.id): return
+    uid = int(q.data.split(":")[1])
+    db.block_user(uid)
+    await q.message.edit_text(q.message.text + "\n\n✅ Foydalanuvchi bloklandi!")
+
+# ---- Fan o'chirish ----
 async def del_subject_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -669,6 +736,16 @@ async def del_subject_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await q.message.edit_text(f"✅ *{subj}* va barcha savollar o'chirildi!", parse_mode="Markdown")
     await q.message.reply_text("⚙️ Admin panel:", reply_markup=admin_kb())
 
+# ---- Kitob o'chirish ----
+async def del_book_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    if not is_admin(q.from_user.id): return
+    book_id = int(q.data.split(":")[1])
+    db.delete_book(book_id)
+    await q.message.edit_text("✅ Kitob o'chirildi!")
+
+# ---- Savol o'chirish ----
 async def admin_del_subject_h(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     t = update.message.text
     if "⬅️" in t:
@@ -701,10 +778,11 @@ async def admin_del_question_h(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         db.delete_question(q_id)
         await update.message.reply_text(f"✅ Savol *#{q_id}* o'chirildi!", parse_mode="Markdown", reply_markup=admin_kb())
     except:
-        await update.message.reply_text("❗ Noto'g'ri ID. Raqam kiriting:", reply_markup=back_kb())
+        await update.message.reply_text("❗ Noto'g'ri ID:", reply_markup=back_kb())
         return ADMIN_DEL_QUESTION
     return ADMIN_MENU
 
+# ---- Savol qo'shish ----
 async def admin_add_subj(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if "⬅️" in update.message.text:
         await update.message.reply_text("⚙️ Admin panel:", reply_markup=admin_kb())
@@ -831,26 +909,28 @@ def main():
             CommandHandler("admin", admin_cmd),
         ],
         states={
-            REGISTER_NAME:     [MessageHandler(filters.TEXT & ~filters.COMMAND, register_name)],
-            REGISTER_GROUP:    [MessageHandler(filters.TEXT & ~filters.COMMAND, register_group)],
-            MENU:              [MessageHandler(filters.TEXT & ~filters.COMMAND, menu)],
-            SELECT_SUBJECT:    [MessageHandler(filters.TEXT & ~filters.COMMAND, select_subject)],
-            SELECT_SIZE:       [MessageHandler(filters.TEXT & ~filters.COMMAND, select_size)],
-            ANSWERING:         [CallbackQueryHandler(inline_answer, pattern="^ans:")],
-            DAILY_ANSWERING:   [MessageHandler(filters.TEXT & ~filters.COMMAND, daily_answer)],
-            ADMIN_MENU:        [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_h)],
-            ADMIN_ADD_SUBJECT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_subj)],
-            ADMIN_ADD_QUESTION:[MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_q)],
-            ADMIN_ADD_A:       [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_a)],
-            ADMIN_ADD_B:       [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_b)],
-            ADMIN_ADD_C:       [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_c)],
-            ADMIN_ADD_D:       [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_d)],
-            ADMIN_ADD_ANSWER:  [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_ans)],
-            ADMIN_DEL_SUBJECT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_del_subject_h)],
-            ADMIN_DEL_QUESTION:[MessageHandler(filters.TEXT & ~filters.COMMAND, admin_del_question_h)],
-            REWARD_METHOD:     [CallbackQueryHandler(method_cb, pattern="^method:")],
-            REWARD_PHONE:      [MessageHandler(filters.TEXT & ~filters.COMMAND, reward_phone_h)],
-            BROADCAST:         [MessageHandler(filters.TEXT & ~filters.COMMAND, broadcast_h)],
+            REGISTER_NAME:      [MessageHandler(filters.TEXT & ~filters.COMMAND, register_name)],
+            REGISTER_GROUP:     [MessageHandler(filters.TEXT & ~filters.COMMAND, register_group)],
+            MENU:               [MessageHandler(filters.TEXT & ~filters.COMMAND, menu)],
+            SELECT_SUBJECT:     [MessageHandler(filters.TEXT & ~filters.COMMAND, select_subject)],
+            SELECT_SIZE:        [MessageHandler(filters.TEXT & ~filters.COMMAND, select_size)],
+            ANSWERING:          [CallbackQueryHandler(inline_answer, pattern="^ans:")],
+            DAILY_ANSWERING:    [MessageHandler(filters.TEXT & ~filters.COMMAND, daily_answer)],
+            ADMIN_MENU:         [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_h)],
+            ADMIN_ADD_SUBJECT:  [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_subj)],
+            ADMIN_ADD_QUESTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_q)],
+            ADMIN_ADD_A:        [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_a)],
+            ADMIN_ADD_B:        [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_b)],
+            ADMIN_ADD_C:        [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_c)],
+            ADMIN_ADD_D:        [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_d)],
+            ADMIN_ADD_ANSWER:   [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_ans)],
+            ADMIN_DEL_SUBJECT:  [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_del_subject_h)],
+            ADMIN_DEL_QUESTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_del_question_h)],
+            ADMIN_ADD_BOOK_NAME:[MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_book_name)],
+            ADMIN_ADD_BOOK_LINK:[MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_book_link)],
+            REWARD_METHOD:      [CallbackQueryHandler(method_cb, pattern="^method:")],
+            REWARD_PHONE:       [MessageHandler(filters.TEXT & ~filters.COMMAND, reward_phone_h)],
+            BROADCAST:          [MessageHandler(filters.TEXT & ~filters.COMMAND, broadcast_h)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=True,
@@ -860,6 +940,8 @@ def main():
     app.add_handler(CallbackQueryHandler(reward_cb,      pattern="^reward:"))
     app.add_handler(CallbackQueryHandler(payment_cb,     pattern="^(paid|reject):"))
     app.add_handler(CallbackQueryHandler(del_subject_cb, pattern="^delsub:"))
+    app.add_handler(CallbackQueryHandler(del_user_cb,    pattern="^deluser:"))
+    app.add_handler(CallbackQueryHandler(del_book_cb,    pattern="^delbook:"))
     app.add_handler(MessageHandler(filters.TEXT, unknown))
 
     print("Bot ishga tushdi!")
