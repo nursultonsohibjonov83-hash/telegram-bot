@@ -15,7 +15,8 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=lo
  ADMIN_DEL_SUBJECT, ADMIN_DEL_QUESTION,
  REWARD_METHOD, REWARD_PHONE, BROADCAST,
  REGISTER_NAME, REGISTER_GROUP,
- ADMIN_ADD_BOOK_NAME, ADMIN_ADD_BOOK_LINK) = range(22)
+ ADMIN_ADD_BOOK_NAME, ADMIN_ADD_BOOK_LINK, ADMIN_ADD_BOOK_PDF,
+ ADMIN_SET_MIN_SCORE, ADMIN_SET_REWARD) = range(25)
 
 def is_admin(uid): return uid in ADMIN_IDS
 
@@ -23,7 +24,7 @@ def main_kb():
     return ReplyKeyboardMarkup([
         ["📝 Test boshlash",      "☀️ Kunlik mini-test"],
         ["📊 Mening statistikam", "🏆 Reyting"],
-        ["🎲 Random test"]
+        ["🎲 Random test",        "📖 Kitoblar"]
     ], resize_keyboard=True)
 
 def admin_kb():
@@ -32,7 +33,8 @@ def admin_kb():
         ["🗑 Savol o'chirish",   "📚 Fan o'chirish"],
         ["👥 Foydalanuvchilar", "💰 Mukofot so'rovlar"],
         ["📖 Kitob qo'shish",   "📚 Kitoblar ro'yxati"],
-        ["📢 Xabar yuborish",   "⬅️ Orqaga"]
+        ["⚙️ Yutuq sozlamalari", "📢 Xabar yuborish"],
+        ["⬅️ Orqaga"]
     ], resize_keyboard=True)
 
 def back_kb():
@@ -177,6 +179,9 @@ async def menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if "Reyting" in t:
         return await show_leaderboard(update, ctx)
 
+    if "Kitoblar" in t:
+        return await show_books(update, ctx)
+
     return MENU
 
 # ============================================================
@@ -274,7 +279,6 @@ async def inline_answer(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 ctx.user_data['correct'] -= 1
         await query.message.edit_reply_markup(reply_markup=None)
         await query.message.reply_text("⬅️ Oldingi savolga qaytdingiz!")
-
         class FU:
             def __init__(self, m): self.message = m
         await send_question(FU(query.message), ctx)
@@ -344,15 +348,16 @@ async def finish_test(message, ctx, uid):
         f"━━━━━━━━━━━━━━━━━━"
     )
 
-    if score >= MIN_SCORE_FOR_REWARD and not db.already_claimed_reward(uid, subj):
-        result += f"\n\n🎉 *{score}%! Mukofot olasiz!*\n💰 *{REWARD_AMOUNT_UZS:,} so'm*"
+    if score >= db.get_setting('min_score', MIN_SCORE_FOR_REWARD) and not db.already_claimed_reward(uid, subj):
+        reward_amt = db.get_setting('reward_amount', REWARD_AMOUNT_UZS)
+        result += f"\n\n🎉 *{score}%! Mukofot olasiz!*\n💰 *{reward_amt:,} so'm*"
         kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton(f"💰 {REWARD_AMOUNT_UZS:,} so'm olish", callback_data=f"reward:{subj}:{score}")
+            InlineKeyboardButton(f"💰 {db.get_setting('reward_amount', REWARD_AMOUNT_UZS):,} so'm olish", callback_data=f"reward:{subj}:{score}")
         ]])
         await message.reply_text(result, parse_mode="Markdown", reply_markup=kb)
     else:
         if score < 60:
-            result += f"\n\n💪 *{MIN_SCORE_FOR_REWARD}%* ball = mukofot!"
+            result += f"\n\n💪 *{db.get_setting('min_score', MIN_SCORE_FOR_REWARD)}%* ball = mukofot!"
         await message.reply_text(result, parse_mode="Markdown", reply_markup=main_kb())
 
     ctx.user_data.clear()
@@ -433,8 +438,7 @@ async def show_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "📊 *Mening statistikam*\n\n"
             "Siz hali birorta test yechmagansiz!\n"
             "📝 Test boshlash uchun menyudan tanlang.",
-            parse_mode="Markdown",
-            reply_markup=main_kb()
+            parse_mode="Markdown", reply_markup=main_kb()
         )
         return MENU
 
@@ -480,9 +484,41 @@ async def show_leaderboard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         grp = f" ({group})" if group else ""
         msg += (
             f"{medals[i]} *{i+1}. {name}{grp}*\n"
-            f"   💯 {r['best']}%  |  📈 {r['avg']}% o'rtacha  |  📝 {r['cnt']} test\n\n"
+            f"   💯 {r['best']}%  |  📈 {r['avg']}%  |  📝 {r['cnt']} test\n\n"
         )
     await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_kb())
+    return MENU
+
+# ============================================================
+# KITOBLAR (FOYDALANUVCHI UCHUN)
+# ============================================================
+
+async def show_books(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    books = db.get_books()
+    if not books:
+        await update.message.reply_text(
+            "📚 Hozircha kitoblar yo'q.\nTez orada qo'shiladi!",
+            reply_markup=main_kb()
+        )
+        return MENU
+
+    await update.message.reply_text(
+        f"📖 *Kitoblar — {len(books)} ta*\n━━━━━━━━━━━━━━━━━━",
+        parse_mode="Markdown", reply_markup=main_kb()
+    )
+    for i, b in enumerate(books):
+        name = b['name'] or "Kitob"
+        if b.get('file_id'):
+            await update.message.reply_document(
+                document=b['file_id'],
+                caption=f"📗 *{name}*",
+                parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text(
+                f"📗 *{name}*\n🔗 {b['link']}",
+                parse_mode="Markdown"
+            )
     return MENU
 
 # ============================================================
@@ -621,20 +657,14 @@ async def admin_menu_h(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("👥 Hali foydalanuvchilar yo'q.", reply_markup=admin_kb())
             return ADMIN_MENU
         msg = f"👥 *{len(users)} ta foydalanuvchi*\n━━━━━━━━━━━━━━━━━━\n"
-        for u in users[:20]:
+        kb_rows = []
+        for u in users:
             name = u['real_name'] or u['full_name'] or 'Nomsiz'
             group = u['group_name'] or "-"
             msg += f"• *{name}* | {group}\n"
-        if len(users) > 20:
-            msg += f"\n...va yana {len(users)-20} ta"
-
-        # O'chirish tugmalari
-        kb_rows = []
-        for u in users[:10]:
-            name = u['real_name'] or u['full_name'] or 'Nomsiz'
             kb_rows.append([InlineKeyboardButton(f"🗑 {name}", callback_data=f"deluser:{u['user_id']}")])
-        kb = InlineKeyboardMarkup(kb_rows)
-        await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=admin_kb())
+        kb = InlineKeyboardMarkup(kb_rows[:10])
+        await update.message.reply_text(msg[:4000], parse_mode="Markdown", reply_markup=admin_kb())
         await update.message.reply_text("Foydalanuvchi o'chirish:", reply_markup=kb)
         return ADMIN_MENU
 
@@ -663,10 +693,13 @@ async def admin_menu_h(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if "Kitob qo'shish" in t:
         await update.message.reply_text(
-            "📖 *Kitob nomi* kiriting:\nMisol: Anatomiya asoslari",
+            "📎 *PDF kitobni yuboring!*\n\n"
+            "Pastdagi 📎 tugmasini bosib\n"
+            "→ *Fayl* tanlang\n"
+            "→ PDF ni yuboring!",
             parse_mode="Markdown", reply_markup=back_kb()
         )
-        return ADMIN_ADD_BOOK_NAME
+        return ADMIN_ADD_BOOK_PDF
 
     if "Kitoblar ro'yxati" in t:
         books = db.get_books()
@@ -683,10 +716,86 @@ async def admin_menu_h(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Kitob o'chirish:", reply_markup=kb)
         return ADMIN_MENU
 
+    if "Yutuq sozlamalari" in t:
+        return await admin_settings(update, ctx)
+
     if "Xabar yuborish" in t:
         await update.message.reply_text("📢 Xabar matnini kiriting:", reply_markup=back_kb())
         return BROADCAST
 
+    return ADMIN_MENU
+
+
+# ---- Yutuq sozlamalari ----
+async def admin_settings(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    min_score = db.get_setting('min_score', 90)
+    reward = db.get_setting('reward_amount', 10000)
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"🎯 Minimal ball: {min_score}%", callback_data="set:min_score")],
+        [InlineKeyboardButton(f"💰 Mukofot: {reward:,} so'm", callback_data="set:reward")],
+    ])
+    await update.message.reply_text(
+        f"⚙️ *Yutuq sozlamalari*\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🎯 Minimal ball: *{min_score}%*\n"
+        f"💰 Mukofot miqdori: *{reward:,} so'm*\n\n"
+        f"O'zgartirish uchun bosing:",
+        parse_mode="Markdown", reply_markup=kb
+    )
+    return ADMIN_MENU
+
+async def settings_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    if not is_admin(q.from_user.id): return
+    setting = q.data.split(":")[1]
+    ctx.user_data['setting_key'] = setting
+    if setting == 'min_score':
+        await q.message.reply_text(
+            "🎯 Yangi minimal ball foizini kiriting:\nMisol: 85",
+            reply_markup=back_kb()
+        )
+        return ADMIN_SET_MIN_SCORE
+    elif setting == 'reward':
+        await q.message.reply_text(
+            "💰 Yangi mukofot miqdorini kiriting (so'm):\nMisol: 15000",
+            reply_markup=back_kb()
+        )
+        return ADMIN_SET_REWARD
+
+async def admin_set_min_score(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if "⬅️" in update.message.text:
+        await update.message.reply_text("⚙️ Admin panel:", reply_markup=admin_kb())
+        return ADMIN_MENU
+    try:
+        val = int(update.message.text.strip())
+        if not 1 <= val <= 100:
+            await update.message.reply_text("❗ 1 dan 100 gacha son kiriting!")
+            return ADMIN_SET_MIN_SCORE
+        db.save_setting('min_score', val)
+        await update.message.reply_text(
+            f"✅ Minimal ball: *{val}%* ga o'zgartirildi!",
+            parse_mode="Markdown", reply_markup=admin_kb()
+        )
+    except:
+        await update.message.reply_text("❗ Faqat son kiriting! Misol: 85")
+        return ADMIN_SET_MIN_SCORE
+    return ADMIN_MENU
+
+async def admin_set_reward(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if "⬅️" in update.message.text:
+        await update.message.reply_text("⚙️ Admin panel:", reply_markup=admin_kb())
+        return ADMIN_MENU
+    try:
+        val = int(update.message.text.strip())
+        db.save_setting('reward_amount', val)
+        await update.message.reply_text(
+            f"✅ Mukofot miqdori: *{val:,} so'm* ga o'zgartirildi!",
+            parse_mode="Markdown", reply_markup=admin_kb()
+        )
+    except:
+        await update.message.reply_text("❗ Faqat son kiriting! Misol: 15000")
+        return ADMIN_SET_REWARD
     return ADMIN_MENU
 
 # ---- Kitob qo'shish ----
@@ -696,34 +805,61 @@ async def admin_add_book_name(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return ADMIN_MENU
     ctx.user_data['book_name'] = update.message.text.strip()
     await update.message.reply_text(
-        "🔗 Kitob *havolasini* (link) kiriting:\nMisol: https://t.me/...",
+        f"📎 *PDF faylni yuboring!*\n\n"
+        f"Pastdagi 📎 tugmasini bosib\n"
+        f"→ *Fayl* tanlang\n"
+        f"→ PDF ni yuboring!",
         parse_mode="Markdown", reply_markup=back_kb()
     )
-    return ADMIN_ADD_BOOK_LINK
+    return ADMIN_ADD_BOOK_PDF
 
 async def admin_add_book_link(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if "⬅️" in update.message.text:
         await update.message.reply_text("📖 Kitob nomi kiriting:", reply_markup=back_kb())
         return ADMIN_ADD_BOOK_NAME
-    link = update.message.text.strip()
-    name = ctx.user_data.get('book_name', '')
-    db.add_book(name, link, update.effective_user.id)
+    # Skip link, ask for PDF directly
     await update.message.reply_text(
-        f"✅ *Kitob qo'shildi!*\n📖 {name}\n🔗 {link}",
-        parse_mode="Markdown", reply_markup=admin_kb()
+        "📎 *PDF faylni yuboring:*\n\n"
+        "Telegram da 📎 tugmasini bosib → *Fayl* tanlang → PDF ni yuboring!",
+        parse_mode="Markdown",
+        reply_markup=back_kb()
     )
-    return ADMIN_MENU
+    return ADMIN_ADD_BOOK_PDF
 
-# ---- Foydalanuvchi o'chirish ----
+async def admin_add_book_pdf(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.message.text and "⬅️" in update.message.text:
+        await update.message.reply_text("⚙️ Admin panel:", reply_markup=admin_kb())
+        return ADMIN_MENU
+
+    if update.message.document:
+        file_id = update.message.document.file_id
+        # Fayl nomini kitob nomi sifatida ishlatamiz
+        file_name = update.message.document.file_name or "Kitob"
+        # .pdf kengaytmasini olib tashlaymiz
+        name = file_name.replace('.pdf', '').replace('.PDF', '').strip()
+        db.add_book(name, '-', update.effective_user.id, file_id)
+        await update.message.reply_text(
+            f"✅ *Kitob qo'shildi!*\n📖 *{name}*\n📎 PDF muvaffaqiyatli yuklandi!",
+            parse_mode="Markdown", reply_markup=admin_kb()
+        )
+        return ADMIN_MENU
+    else:
+        await update.message.reply_text(
+            "❗ PDF fayl yuboring!\n\n"
+            "📎 tugmasini bosing → *Fayl* tanlang → PDF ni yuboring:",
+            parse_mode="Markdown"
+        )
+        return ADMIN_ADD_BOOK_PDF
+
+# ---- Callbacks ----
 async def del_user_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
     if not is_admin(q.from_user.id): return
     uid = int(q.data.split(":")[1])
     db.block_user(uid)
-    await q.message.edit_text(q.message.text + "\n\n✅ Foydalanuvchi bloklandi!")
+    await q.message.edit_text(q.message.text + "\n\n✅ Bloklandi!")
 
-# ---- Fan o'chirish ----
 async def del_subject_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -733,10 +869,8 @@ async def del_subject_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     conn.execute('DELETE FROM questions WHERE subject=?', (subj,))
     conn.commit()
     conn.close()
-    await q.message.edit_text(f"✅ *{subj}* va barcha savollar o'chirildi!", parse_mode="Markdown")
-    await q.message.reply_text("⚙️ Admin panel:", reply_markup=admin_kb())
+    await q.message.edit_text(f"✅ *{subj}* o'chirildi!", parse_mode="Markdown")
 
-# ---- Kitob o'chirish ----
 async def del_book_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -755,7 +889,6 @@ async def admin_del_subject_h(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if t not in subs:
         await update.message.reply_text("❗ Ro'yxatdan tanlang:", reply_markup=subject_kb(subs))
         return ADMIN_DEL_SUBJECT
-    ctx.user_data['del_subj'] = t
     qs = db.get_questions(t)
     if not qs:
         await update.message.reply_text(f"❗ *{t}* da savol yo'q.", parse_mode="Markdown", reply_markup=admin_kb())
@@ -866,7 +999,10 @@ async def broadcast_h(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await ctx.bot.send_message(u['user_id'], f"📢 {update.message.text}")
             sent += 1
         except: fail += 1
-    await update.message.reply_text(f"✅ Yuborildi: *{sent}*\n❌ Xato: *{fail}*", parse_mode="Markdown", reply_markup=admin_kb())
+    await update.message.reply_text(
+        f"✅ Yuborildi: *{sent}*\n❌ Xato: *{fail}*",
+        parse_mode="Markdown", reply_markup=admin_kb()
+    )
     return ADMIN_MENU
 
 async def payment_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -911,12 +1047,18 @@ def main():
         states={
             REGISTER_NAME:      [MessageHandler(filters.TEXT & ~filters.COMMAND, register_name)],
             REGISTER_GROUP:     [MessageHandler(filters.TEXT & ~filters.COMMAND, register_group)],
-            MENU:               [MessageHandler(filters.TEXT & ~filters.COMMAND, menu)],
+            MENU:               [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, menu),
+                CommandHandler("admin", admin_cmd),
+            ],
             SELECT_SUBJECT:     [MessageHandler(filters.TEXT & ~filters.COMMAND, select_subject)],
             SELECT_SIZE:        [MessageHandler(filters.TEXT & ~filters.COMMAND, select_size)],
             ANSWERING:          [CallbackQueryHandler(inline_answer, pattern="^ans:")],
             DAILY_ANSWERING:    [MessageHandler(filters.TEXT & ~filters.COMMAND, daily_answer)],
-            ADMIN_MENU:         [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_h)],
+            ADMIN_MENU:         [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_h),
+                CommandHandler("admin", admin_cmd),
+            ],
             ADMIN_ADD_SUBJECT:  [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_subj)],
             ADMIN_ADD_QUESTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_q)],
             ADMIN_ADD_A:        [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_a)],
@@ -928,15 +1070,27 @@ def main():
             ADMIN_DEL_QUESTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_del_question_h)],
             ADMIN_ADD_BOOK_NAME:[MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_book_name)],
             ADMIN_ADD_BOOK_LINK:[MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_book_link)],
+            ADMIN_SET_MIN_SCORE:[MessageHandler(filters.TEXT & ~filters.COMMAND, admin_set_min_score)],
+            ADMIN_SET_REWARD:   [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_set_reward)],
+            ADMIN_ADD_BOOK_PDF: [
+                MessageHandler(filters.Document.PDF, admin_add_book_pdf),
+                CommandHandler("skip", lambda u,c: admin_add_book_pdf(u,c)),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_book_pdf),
+            ],
             REWARD_METHOD:      [CallbackQueryHandler(method_cb, pattern="^method:")],
             REWARD_PHONE:       [MessageHandler(filters.TEXT & ~filters.COMMAND, reward_phone_h)],
             BROADCAST:          [MessageHandler(filters.TEXT & ~filters.COMMAND, broadcast_h)],
         },
-        fallbacks=[CommandHandler("cancel", cancel)],
+        fallbacks=[
+            CommandHandler("cancel", cancel),
+            CommandHandler("start", start),
+            CommandHandler("admin", admin_cmd),
+        ],
         allow_reentry=True,
     )
 
     app.add_handler(conv)
+    app.add_handler(CallbackQueryHandler(settings_cb,    pattern="^set:"))
     app.add_handler(CallbackQueryHandler(reward_cb,      pattern="^reward:"))
     app.add_handler(CallbackQueryHandler(payment_cb,     pattern="^(paid|reject):"))
     app.add_handler(CallbackQueryHandler(del_subject_cb, pattern="^delsub:"))
