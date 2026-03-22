@@ -509,11 +509,17 @@ async def show_books(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     for i, b in enumerate(books):
         name = b['name'] or "Kitob"
         if b.get('file_id'):
-            await update.message.reply_document(
-                document=b['file_id'],
-                caption=f"📗 *{name}*",
-                parse_mode="Markdown"
-            )
+            try:
+                await update.message.reply_document(
+                    document=b['file_id'],
+                    caption=f"📗 *{name}*",
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                await update.message.reply_text(
+                    f"📗 *{name}* — fayl yuborishda xato!",
+                    parse_mode="Markdown"
+                )
         else:
             await update.message.reply_text(
                 f"📗 *{name}*\n🔗 {b['link']}",
@@ -833,20 +839,19 @@ async def admin_add_book_pdf(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if update.message.document:
         file_id = update.message.document.file_id
-        # Fayl nomini kitob nomi sifatida ishlatamiz
         file_name = update.message.document.file_name or "Kitob"
-        # .pdf kengaytmasini olib tashlaymiz
-        name = file_name.replace('.pdf', '').replace('.PDF', '').strip()
+        # Kengaytmani olib tashlaymiz
+        name = file_name.rsplit('.', 1)[0].strip()
         db.add_book(name, '-', update.effective_user.id, file_id)
         await update.message.reply_text(
-            f"✅ *Kitob qo'shildi!*\n📖 *{name}*\n📎 PDF muvaffaqiyatli yuklandi!",
+            f"✅ *Kitob qo'shildi!*\n📖 *{name}*\n📎 Fayl muvaffaqiyatli yuklandi!",
             parse_mode="Markdown", reply_markup=admin_kb()
         )
         return ADMIN_MENU
     else:
         await update.message.reply_text(
-            "❗ PDF fayl yuboring!\n\n"
-            "📎 tugmasini bosing → *Fayl* tanlang → PDF ni yuboring:",
+            "❗ Fayl yuboring!\n\n"
+            "📎 tugmasini bosing → *Fayl* tanlang → yuboring:",
             parse_mode="Markdown"
         )
         return ADMIN_ADD_BOOK_PDF
@@ -1073,8 +1078,7 @@ def main():
             ADMIN_SET_MIN_SCORE:[MessageHandler(filters.TEXT & ~filters.COMMAND, admin_set_min_score)],
             ADMIN_SET_REWARD:   [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_set_reward)],
             ADMIN_ADD_BOOK_PDF: [
-                MessageHandler(filters.Document.PDF, admin_add_book_pdf),
-                CommandHandler("skip", lambda u,c: admin_add_book_pdf(u,c)),
+                MessageHandler(filters.Document.ALL, admin_add_book_pdf),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_book_pdf),
             ],
             REWARD_METHOD:      [CallbackQueryHandler(method_cb, pattern="^method:")],
