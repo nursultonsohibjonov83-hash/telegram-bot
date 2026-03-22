@@ -60,6 +60,18 @@ def init_db():
         added_by   INTEGER,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS settings (
+        key   TEXT PRIMARY KEY,
+        value TEXT
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS books (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        name       TEXT,
+        link       TEXT,
+        file_id    TEXT,
+        added_by   INTEGER,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )''')
     conn.commit()
     conn.close()
 
@@ -223,23 +235,10 @@ def already_claimed_reward(user_id, subject):
     conn.close()
     return row is not None
 
-# ---- Kitob funksiyalari ----
-
-def init_books_table():
+def add_book(name, link, admin_id, file_id=None):
     conn = get_conn()
-    conn.execute('''CREATE TABLE IF NOT EXISTS books (
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        name       TEXT,
-        link       TEXT,
-        added_by   INTEGER,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    )''')
-    conn.commit()
-    conn.close()
-
-def add_book(name, link, admin_id):
-    conn = get_conn()
-    conn.execute('INSERT INTO books (name, link, added_by) VALUES (?,?,?)', (name, link, admin_id))
+    conn.execute('INSERT INTO books (name, link, file_id, added_by) VALUES (?,?,?,?)',
+                 (name, link, file_id, admin_id))
     conn.commit()
     conn.close()
 
@@ -252,5 +251,20 @@ def get_books():
 def delete_book(book_id):
     conn = get_conn()
     conn.execute('DELETE FROM books WHERE id=?', (book_id,))
+    conn.commit()
+    conn.close()
+
+def get_setting(key, default=None):
+    conn = get_conn()
+    row = conn.execute('SELECT value FROM settings WHERE key=?', (key,)).fetchone()
+    conn.close()
+    if row:
+        try: return int(row['value'])
+        except: return row['value']
+    return default
+
+def save_setting(key, value):
+    conn = get_conn()
+    conn.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)', (key, str(value)))
     conn.commit()
     conn.close()
