@@ -103,7 +103,9 @@ def get_all_users():
 
 def block_user(user_id):
     conn = get_conn()
-    conn.execute('UPDATE users SET is_blocked=1 WHERE user_id=?', (user_id,))
+    conn.execute('DELETE FROM users WHERE user_id=?', (user_id,))
+    conn.execute('DELETE FROM results WHERE user_id=?', (user_id,))
+    conn.execute('DELETE FROM daily WHERE user_id=?', (user_id,))
     conn.commit()
     conn.close()
 
